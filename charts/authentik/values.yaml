@@ -662,6 +662,13 @@ worker:
   # -- whether to enable worker resources
   enabled: true
 
+  ## authentik worker queue distribution
+  #  key => queue name
+  #
+  queues:
+    default:
+      name: worker-default
+
   # -- authentik worker name
   name: worker
 
