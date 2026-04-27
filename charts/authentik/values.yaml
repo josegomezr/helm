@@ -663,11 +663,11 @@ worker:
   enabled: true
 
   ## authentik worker queue distribution
-  #  key => queue name
+  #  key => worker config definition
   #
   queues:
     default:
-      name: worker-default
+      name: worker
 
   # -- authentik worker name
   name: worker

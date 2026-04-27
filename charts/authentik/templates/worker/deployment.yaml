@@ -1,168 +1,171 @@
 {{- if .Values.worker.enabled }}
+{{/*
+Minimize changing every "." for $root by overlapping the workerconfig on top of
+the current root + a with block.
+*/}}
 {{- $root := . -}}
-{{- range $queueName, $workerConfig := $root.Values.worker.queues -}}
-{{- $mergedWorkerConf := mustMergeOverwrite (dict) $root.Values.worker $workerConfig -}}
+{{- $defaultWorker := (dict "default" (dict)) -}}
+{{- range $queueName, $workerConfig := (default $defaultWorker $root.Values.worker.queues) -}}
+{{- $newRoot := mustMergeOverwrite (dict) $root (dict "Values" (dict "worker" $workerConfig)) -}}
+{{- with $newRoot -}}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ template "suse.authentik.worker.fullname" (dict
-    "context" $root
-    "workerConfig" $mergedWorkerConf
-  )
-  }}
-  namespace: {{ include "authentik.namespace" $root | quote }}
+  name: {{ template "authentik.worker.fullname" . }}
+  namespace: {{ include "authentik.namespace" . | quote }}
   labels:
-    {{- include "authentik.labels" (dict "context" $root "component" $mergedWorkerConf.name) | nindent 4 }}
-  {{- with (mergeOverwrite (deepCopy $root.Values.global.deploymentAnnotations) $mergedWorkerConf.deploymentAnnotations) }}
+    {{- include "authentik.labels" (dict "context" . "component" .Values.worker.name) | nindent 4 }}
+  {{- with (mergeOverwrite (deepCopy .Values.global.deploymentAnnotations) .Values.worker.deploymentAnnotations) }}
   annotations:
     {{- range $key, $value := . }}
     {{ $key}}: {{ $value | quote }}
     {{- end }}
   {{- end }}
 spec:
-  {{- with include "authentik.strategy" (mergeOverwrite (deepCopy $root.Values.global.deploymentStrategy) $mergedWorkerConf.deploymentStrategy) }}
+  {{- with include "authentik.strategy" (mergeOverwrite (deepCopy .Values.global.deploymentStrategy) .Values.worker.deploymentStrategy) }}
   strategy:
     {{- trim . | nindent 4 }}
   {{- end }}
-  {{- if not $mergedWorkerConf.autoscaling.enabled }}
-  replicas: {{ $mergedWorkerConf.replicas }}
+  {{- if not .Values.worker.autoscaling.enabled }}
+  replicas: {{ .Values.worker.replicas }}
   {{- end }}
-  revisionHistoryLimit: {{ $root.Values.global.revisionHistoryLimit }}
+  revisionHistoryLimit: {{ .Values.global.revisionHistoryLimit }}
   selector:
     matchLabels:
-      {{- include "authentik.selectorLabels" (dict "context" $root "component" $mergedWorkerConf.name) | nindent 6 }}
+      {{- include "authentik.selectorLabels" (dict "context" . "component" .Values.worker.name) | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "authentik.labels" (dict "context" $root "component" $mergedWorkerConf.name) | nindent 8 }}
-        {{- with (mergeOverwrite (deepCopy $root.Values.global.podLabels) $mergedWorkerConf.podLabels) }}
+        {{- include "authentik.labels" (dict "context" . "component" .Values.worker.name) | nindent 8 }}
+        {{- with (mergeOverwrite (deepCopy .Values.global.podLabels) .Values.worker.podLabels) }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
-        checksum/secret: {{ include (print $root.Template.BasePath "/secret.yaml") $root | sha256sum }}
-        {{- with (mergeOverwrite (deepCopy $root.Values.global.podAnnotations) $mergedWorkerConf.podAnnotations) }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with (mergeOverwrite (deepCopy .Values.global.podAnnotations) .Values.worker.podAnnotations) }}
         {{- range $key, $value := . }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
         {{- end }}
     spec:
-      {{- with $mergedWorkerConf.imagePullSecrets | default $root.Values.global.imagePullSecrets }}
+      {{- with .Values.worker.imagePullSecrets | default .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $mergedWorkerConf.serviceAccountName }}
+      {{- with .Values.worker.serviceAccountName }}
       serviceAccountName: {{ . }}
-      {{- with $mergedWorkerConf.automountServiceAccountToken }}
+      {{- with $.Values.worker.automountServiceAccountToken }}
       automountServiceAccountToken:  {{ . }}
       {{- end }}
       {{- else }}
-      {{- if $root.Values.serviceAccount.create }}
+      {{- if .Values.serviceAccount.create }}
       serviceAccountName: {{ include "authentik-remote-cluster.fullname" .Subcharts.serviceAccount }}
       {{- end }}
       {{- end }}
-      {{- with $root.Values.global.hostAliases }}
+      {{- with .Values.global.hostAliases }}
       hostAliases:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with (mergeOverwrite (deepCopy $root.Values.global.securityContext) $mergedWorkerConf.securityContext) }}
+      {{- with (mergeOverwrite (deepCopy .Values.global.securityContext) .Values.worker.securityContext) }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $mergedWorkerConf.priorityClassName | default $root.Values.global.priorityClassName }}
+      {{- with .Values.worker.priorityClassName | default .Values.global.priorityClassName }}
       priorityClassName: {{ . }}
       {{- end }}
-      {{- if $mergedWorkerConf.terminationGracePeriodSeconds }}
-      terminationGracePeriodSeconds: {{ $mergedWorkerConf.terminationGracePeriodSeconds }}
+      {{- if .Values.worker.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
       {{- end }}
-      {{- with $mergedWorkerConf.initContainers }}
+      {{- with .Values.worker.initContainers }}
       initContainers:
         {{- tpl (toYaml . ) $ | nindent 6 }}
       {{- end }}
       containers:
-        - name: {{ $mergedWorkerConf.name }}
-          image: {{ default $root.Values.global.image.repository $mergedWorkerConf.image.repository }}:{{ default (include "authentik.defaultTag" $root) $mergedWorkerConf.image.tag }}{{- if (default $root.Values.global.image.digest $mergedWorkerConf.image.digest) -}}@{{ default $root.Values.global.image.digest $mergedWorkerConf.image.digest }}{{- end }}
-          imagePullPolicy: {{ default $root.Values.global.image.pullPolicy $mergedWorkerConf.image.pullPolicy }}
-          {{- $args := default (list "worker") $mergedWorkerConf.args }}
+        - name: {{ .Values.worker.name }}
+          image: {{ default .Values.global.image.repository .Values.worker.image.repository }}:{{ default (include "authentik.defaultTag" .) .Values.worker.image.tag }}{{- if (default .Values.global.image.digest .Values.worker.image.digest) -}}@{{ default .Values.global.image.digest .Values.worker.image.digest }}{{- end }}
+          imagePullPolicy: {{ default .Values.global.image.pullPolicy .Values.worker.image.pullPolicy }}
+          {{- with default (list "worker") .Values.worker.args }}
           args:
-            {{- $args | toYaml | nindent 12 }}
+            {{- . | toYaml | nindent 12 }}
+          {{- end }}
           env:
-            {{- with (concat $root.Values.global.env $mergedWorkerConf.env) }}
+            {{- with (concat .Values.global.env .Values.worker.env) }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
             - name: AUTHENTIK_LISTEN__HTTP
-              value: {{ printf "0.0.0.0:%v" $mergedWorkerConf.containerPorts.http | quote }}
+              value: {{ printf "0.0.0.0:%v" .Values.worker.containerPorts.http | quote }}
             - name: AUTHENTIK_LISTEN__METRICS
-              value: {{ printf "0.0.0.0:%v" $mergedWorkerConf.containerPorts.metrics | quote }}
+              value: {{ printf "0.0.0.0:%v" .Values.worker.containerPorts.metrics | quote }}
           envFrom:
             - secretRef:
-                name: {{ template "authentik.secret.name" $root }}
-            {{- with (concat $root.Values.global.envFrom $mergedWorkerConf.envFrom) }}
+                name: {{ template "authentik.secret.name" . }}
+            {{- with (concat .Values.global.envFrom .Values.worker.envFrom) }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- if or $root.Values.geoip.enabled $root.Values.global.volumeMounts $mergedWorkerConf.volumeMounts $root.Values.blueprints.configMaps $root.Values.blueprints.secrets }}
+          {{- if or .Values.geoip.enabled .Values.global.volumeMounts .Values.worker.volumeMounts .Values.blueprints.configMaps .Values.blueprints.secrets }}
           volumeMounts:
-            {{- with $root.Values.global.volumeMounts }}
+            {{- with .Values.global.volumeMounts }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
-            {{- with $mergedWorkerConf.volumeMounts }}
+            {{- with .Values.worker.volumeMounts }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
-            {{- if $root.Values.geoip.enabled }}
+            {{- if .Values.geoip.enabled }}
             - name: geoip-db
               mountPath: /geoip
             {{- end }}
-            {{- range $name := $root.Values.blueprints.configMaps }}
+            {{- range $name := .Values.blueprints.configMaps }}
             - name: blueprints-cm-{{ $name }}
               mountPath: /blueprints/mounted/cm-{{ $name }}
             {{- end }}
-            {{- range $name := $root.Values.blueprints.secrets }}
+            {{- range $name := .Values.blueprints.secrets }}
             - name: blueprints-secret-{{ $name }}
               mountPath: /blueprints/mounted/secret-{{ $name }}
             {{- end }}
           {{- end }}
           ports:
             - name: http
-              containerPort: {{ $mergedWorkerConf.containerPorts.http }}
+              containerPort: {{ .Values.worker.containerPorts.http }}
               protocol: TCP
             - name: metrics
-              containerPort: {{ $mergedWorkerConf.containerPorts.metrics }}
+              containerPort: {{ .Values.worker.containerPorts.metrics }}
               protocol: TCP
-          {{- with $mergedWorkerConf.livenessProbe }}
+          {{- with .Values.worker.livenessProbe }}
           livenessProbe:
             {{ toYaml . | nindent 12 }}
           {{- end }}
-          {{- with $mergedWorkerConf.readinessProbe }}
+          {{- with .Values.worker.readinessProbe }}
           readinessProbe:
             {{ toYaml . | nindent 12 }}
           {{- end }}
-          {{- with $mergedWorkerConf.startupProbe }}
+          {{- with .Values.worker.startupProbe }}
           startupProbe:
             {{ toYaml . | nindent 12 }}
           {{- end }}
           resources:
-            {{- toYaml $mergedWorkerConf.resources | nindent 12 }}
-          {{- with $mergedWorkerConf.containerSecurityContext }}
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          {{- with .Values.worker.containerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with $mergedWorkerConf.lifecycle }}
+          {{- with .Values.worker.lifecycle }}
           lifecycle:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-        {{- if $root.Values.geoip.enabled }}
+        {{- if .Values.geoip.enabled }}
         - name: geoip
-          image: {{ $root.Values.geoip.image.repository }}:{{ $root.Values.geoip.image.tag }}{{- if $root.Values.geoip.image.digest -}}@{{ $root.Values.geoip.image.digest }}{{- end }}
-          imagePullPolicy: {{ $root.Values.geoip.image.pullPolicy }}
+          image: {{ .Values.geoip.image.repository }}:{{ .Values.geoip.image.tag }}{{- if .Values.geoip.image.digest -}}@{{ .Values.geoip.image.digest }}{{- end }}
+          imagePullPolicy: {{ .Values.geoip.image.pullPolicy }}
           env:
-            {{- with $root.Values.geoip.env }}
+            {{- with .Values.geoip.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
             - name: GEOIPUPDATE_FREQUENCY
-              value: {{ $root.Values.geoip.updateInterval | quote }}
+              value: {{ .Values.geoip.updateInterval | quote }}
             - name: GEOIPUPDATE_PRESERVE_FILE_TIMES
               value: "1"
-            {{- if not $root.Values.geoip.existingSecret.secretName }}
+            {{- if not .Values.geoip.existingSecret.secretName }}
             - name: GEOIPUPDATE_ACCOUNT_ID
               valueFrom:
                 secretKeyRef:
@@ -177,93 +180,94 @@ spec:
             - name: GEOIPUPDATE_ACCOUNT_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ $root.Values.geoip.existingSecret.secretName }}
-                  key: {{ $root.Values.geoip.existingSecret.accountId }}
+                  name: {{ .Values.geoip.existingSecret.secretName }}
+                  key: {{ .Values.geoip.existingSecret.accountId }}
             - name: GEOIPUPDATE_LICENSE_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ $root.Values.geoip.existingSecret.secretName }}
-                  key: {{ $root.Values.geoip.existingSecret.licenseKey }}
+                  name: {{ .Values.geoip.existingSecret.secretName }}
+                  key: {{ .Values.geoip.existingSecret.licenseKey }}
             {{- end }}
             - name: GEOIPUPDATE_EDITION_IDS
-              value: {{ required "geoip edition id required" $root.Values.geoip.editionIds | quote }}
-          {{- with $root.Values.geoip.envFrom }}
+              value: {{ required "geoip edition id required" .Values.geoip.editionIds | quote }}
+          {{- with .Values.geoip.envFrom }}
           envFrom:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            {{- with $root.Values.geoip.volumeMounts }}
+            {{- with .Values.geoip.volumeMounts }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
             - name: geoip-db
               mountPath: /usr/share/GeoIP
           resources:
-            {{- toYaml $root.Values.geoip.resources | nindent 12 }}
-          {{- with $root.Values.geoip.containerSecurityContext }}
+            {{- toYaml .Values.geoip.resources | nindent 12 }}
+          {{- with .Values.geoip.containerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- end }}
-        {{- with $mergedWorkerConf.extraContainers }}
+        {{- with .Values.worker.extraContainers }}
           {{- tpl (toYaml . ) $ | nindent 8 }}
         {{- end }}
-      {{- with include "authentik.affinity" (dict "context" $root "component" $mergedWorkerConf) }}
+      {{- with include "authentik.affinity" (dict "context" . "component" .Values.worker) }}
       affinity:
         {{- trim . | nindent 8 }}
       {{- end }}
-      {{- with $mergedWorkerConf.nodeSelector | default $root.Values.global.nodeSelector }}
+      {{- with .Values.worker.nodeSelector | default .Values.global.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $mergedWorkerConf.tolerations | default $root.Values.global.tolerations }}
+      {{- with .Values.worker.tolerations | default .Values.global.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $mergedWorkerConf.topologySpreadConstraints | default $root.Values.global.topologySpreadConstraints }}
+      {{- with .Values.worker.topologySpreadConstraints | default .Values.global.topologySpreadConstraints }}
       topologySpreadConstraints:
         {{- range $constraint := . }}
       - {{ toYaml $constraint | nindent 8 | trim }}
         {{- if not $constraint.labelSelector }}
         labelSelector:
           matchLabels:
-            {{- include "authentik.selectorLabels" (dict "context" $ "component" $mergedWorkerConf.name) | nindent 12 }}
+            {{- include "authentik.selectorLabels" (dict "context" $ "component" $.Values.worker.name) | nindent 12 }}
         {{- end }}
         {{- end }}
       {{- end }}
-      {{- if or $root.Values.geoip.enabled $root.Values.global.volumes $mergedWorkerConf.volumes $root.Values.blueprints.configMaps $root.Values.blueprints.secrets }}
+      {{- if or .Values.geoip.enabled .Values.global.volumes .Values.worker.volumes .Values.blueprints.configMaps .Values.blueprints.secrets }}
       volumes:
-      {{- with $root.Values.global.volumes }}
+      {{- with .Values.global.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $mergedWorkerConf.volumes }}
+      {{- with .Values.worker.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if $root.Values.geoip.enabled }}
+      {{- if .Values.geoip.enabled }}
         - name: geoip-db
           emptyDir: {}
       {{- end }}
-      {{- range $name := $root.Values.blueprints.configMaps }}
+      {{- range $name := .Values.blueprints.configMaps }}
         - name: blueprints-cm-{{ $name }}
           configMap:
             name: {{ $name }}
       {{- end }}
-      {{- range $name := $root.Values.blueprints.secrets }}
+      {{- range $name := .Values.blueprints.secrets }}
         - name: blueprints-secret-{{ $name }}
           secret:
             secretName: {{ $name }}
       {{- end }}
       {{- end }}
       enableServiceLinks: true
-      {{- if $mergedWorkerConf.hostNetwork }}
-      hostNetwork: {{ $mergedWorkerConf.hostNetwork }}
+      {{- if .Values.worker.hostNetwork }}
+      hostNetwork: {{ .Values.worker.hostNetwork }}
       {{- end }}
-      {{- with $mergedWorkerConf.dnsConfig }}
+      {{- with .Values.worker.dnsConfig }}
       dnsConfig:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if $mergedWorkerConf.dnsPolicy }}
-      dnsPolicy: {{ $mergedWorkerConf.dnsPolicy }}
+      {{- if .Values.worker.dnsPolicy }}
+      dnsPolicy: {{ .Values.worker.dnsPolicy }}
       {{- end }}
 ...
 {{ end -}}
+{{- end -}}
 {{- end }}
