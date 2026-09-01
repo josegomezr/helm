@@ -1,4 +1,14 @@
 {{- if and .Values.worker.enabled .Values.worker.metrics.enabled }}
+{{/*
+Minimize changing every "." for $root by overlapping the workerconfig on top of
+the current root + a with block.
+*/}}
+{{- $root := . -}}
+{{- $defaultWorker := (dict "default" (dict)) -}}
+{{- range $queueName, $workerConfig := (default $defaultWorker $root.Values.worker.queues) -}}
+{{- $newRoot := mustMergeOverwrite (dict) $root (dict "Values" (dict "worker" $workerConfig)) -}}
+{{- with $newRoot -}}
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -31,4 +41,7 @@ spec:
     targetPort: metrics
   selector:
     {{- include "authentik.selectorLabels" (dict "context" . "component" .Values.worker.name) | nindent 4 }}
+...
+{{ end -}}
+{{- end -}}
 {{- end }}

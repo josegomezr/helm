@@ -15,7 +15,10 @@ metadata:
   name: {{ template "authentik.worker.fullname" . }}
   namespace: {{ include "authentik.namespace" . | quote }}
   labels:
-    {{- include "authentik.labels" (dict "context" . "component" .Values.worker.name) | nindent 4 }}
+    {{- include "authentik.labels" (dict
+      "context" .
+      "component" "worker"
+    ) | nindent 4 }}
   {{- with (mergeOverwrite (deepCopy .Values.global.deploymentAnnotations) .Values.worker.deploymentAnnotations) }}
   annotations:
     {{- range $key, $value := . }}

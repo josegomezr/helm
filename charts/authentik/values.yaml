@@ -667,7 +667,7 @@ worker:
   #
   queues:
     default:
-      name: worker
+      name: worker-default
 
   # -- authentik worker name
   name: worker
